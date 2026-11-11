@@ -1,0 +1,274 @@
+"""
+A* search for the 8-puzzle.
+
+State : tuple of 9 numbers read row by row, 0 = blank.
+g(n)  : number of moves made so far.
+h(n)  : Manhattan distance of every tile from its goal position
+        (admissible and consistent, so A* returns an optimal solution).
+f(n)  : g(n) + h(n)
+"""
+
+import heapq
+
+GOAL = (1, 2, 3,
+        4, 5, 6,
+        7, 8, 0)
+
+GOAL_POS = {tile: (i // 3, i % 3) for i, tile in enumerate(GOAL)}
+
+
+def manhattan(state):
+    total = 0
+    for i, tile in enumerate(state):
+        if tile != 0:
+            gr, gc = GOAL_POS[tile]
+            total += abs(i // 3 - gr) + abs(i % 3 - gc)
+    return total
+
+
+def is_solvable(state):
+    """For a 3x3 board, solvable iff the number of inversions is even."""
+    tiles = [t for t in state if t != 0]
+    inversions = sum(1 for i in range(len(tiles))
+                     for j in range(i + 1, len(tiles)) if tiles[i] > tiles[j])
+    return inversions % 2 == 0
+
+
+def neighbors(state):
+    """Yield (move_name, new_state) by sliding the blank up/down/left/right."""
+    b = state.index(0)
+    r, c = divmod(b, 3)
+    for name, dr, dc in (("Up", -1, 0), ("Down", 1, 0),
+                         ("Left", 0, -1), ("Right", 0, 1)):
+        nr, nc = r + dr, c + dc
+        if 0 <= nr < 3 and 0 <= nc < 3:
+            nb = nr * 3 + nc
+            s = list(state)
+            s[b], s[nb] = s[nb], s[b]
+            yield name, tuple(s)
+
+
+def astar(start):
+    if not is_solvable(start):
+        return None, 0
+
+    counter = 0                                   # tie-breaker for the heap
+    open_list = [(manhattan(start), counter, 0, start)]   # (f, count, g, state)
+    parent = {start: (None, None)}                # state -> (previous, move)
+    best_g = {start: 0}
+    expanded = 0
+
+    while open_list:
+        f, _, g, state = heapq.heappop(open_list)
+
+        if g > best_g.get(state, float("inf")):   # stale queue entry
+            continue
+        expanded += 1
+
+        if state == GOAL:                         # rebuild the path
+            path = []
+            while parent[state][0] is not None:
+                prev, move = parent[state]
+                path.append((move, state))
+                state = prev
+            path.reverse()
+            return path, expanded
+
+        for move, nxt in neighbors(state):
+            new_g = g + 1
+            if new_g < best_g.get(nxt, float("inf")):
+                best_g[nxt] = new_g
+                parent[nxt] = (state, move)
+                counter += 1
+                heapq.heappush(open_list,
+                               (new_g + manhattan(nxt), counter, new_g, nxt))
+    return None, expanded
+
+
+def show(state):
+    for r in range(3):
+        print(" ".join(str(t) if t else "_" for t in state[r * 3:r * 3 + 3]))
+
+
+if __name__ == "__main__":
+    start = (8, 6, 7,
+             2, 5, 4,
+             3, 0, 1)          # a hard one: optimal solution is 31 moves
+
+    path, expanded = astar(start)
+
+    if path is None:
+        print("This puzzle is not solvable.")
+    else:
+        print("Start:")
+        show(start)
+        for i, (move, state) in enumerate(path, 1):
+            print(f"\nStep {i}: move blank {move}")
+            show(state)
+        print(f"\nSolved in {len(path)} moves, {expanded} nodes expanded.")
+
+
+
+
+
+output:Start:
+8 6 7
+2 5 4
+3 _ 1
+
+Step 1: move blank Left
+8 6 7
+2 5 4
+_ 3 1
+
+Step 2: move blank Up
+8 6 7
+_ 5 4
+2 3 1
+
+Step 3: move blank Right
+8 6 7
+5 _ 4
+2 3 1
+
+Step 4: move blank Down
+8 6 7
+5 3 4
+2 _ 1
+
+Step 5: move blank Right
+8 6 7
+5 3 4
+2 1 _
+
+Step 6: move blank Up
+8 6 7
+5 3 _
+2 1 4
+
+Step 7: move blank Up
+8 6 _
+5 3 7
+2 1 4
+
+Step 8: move blank Left
+8 _ 6
+5 3 7
+2 1 4
+
+Step 9: move blank Down
+8 3 6
+5 _ 7
+2 1 4
+
+Step 10: move blank Left
+8 3 6
+_ 5 7
+2 1 4
+
+Step 11: move blank Down
+8 3 6
+2 5 7
+_ 1 4
+
+Step 12: move blank Right
+8 3 6
+2 5 7
+1 _ 4
+
+Step 13: move blank Right
+8 3 6
+2 5 7
+1 4 _
+
+Step 14: move blank Up
+8 3 6
+2 5 _
+1 4 7
+
+Step 15: move blank Up
+8 3 _
+2 5 6
+1 4 7
+
+Step 16: move blank Left
+8 _ 3
+2 5 6
+1 4 7
+
+Step 17: move blank Left
+_ 8 3
+2 5 6
+1 4 7
+
+Step 18: move blank Down
+2 8 3
+_ 5 6
+1 4 7
+
+Step 19: move blank Down
+2 8 3
+1 5 6
+_ 4 7
+
+Step 20: move blank Right
+2 8 3
+1 5 6
+4 _ 7
+
+Step 21: move blank Right
+2 8 3
+1 5 6
+4 7 _
+
+Step 22: move blank Up
+2 8 3
+1 5 _
+4 7 6
+
+Step 23: move blank Left
+2 8 3
+1 _ 5
+4 7 6
+
+Step 24: move blank Up
+2 _ 3
+1 8 5
+4 7 6
+
+Step 25: move blank Left
+_ 2 3
+1 8 5
+4 7 6
+
+Step 26: move blank Down
+1 2 3
+_ 8 5
+4 7 6
+
+Step 27: move blank Down
+1 2 3
+4 8 5
+_ 7 6
+
+Step 28: move blank Right
+1 2 3
+4 8 5
+7 _ 6
+
+Step 29: move blank Up
+1 2 3
+4 _ 5
+7 8 6
+
+Step 30: move blank Right
+1 2 3
+4 5 _
+7 8 6
+
+Step 31: move blank Down
+1 2 3
+4 5 6
+7 8 _
+
+Solved in 31 moves, 20291 nodes expanded.
