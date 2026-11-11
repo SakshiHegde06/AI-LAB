@@ -1,0 +1,123 @@
+import random
+
+def calculate_conflicts(state):
+    """Calculates the number of conflicting queen pairs on the board."""
+    n = len(state)
+    conflicts = 0
+    for i in range(n):
+        for j in range(i + 1, n):
+            # Same row conflict
+            if state[i] == state[j]:
+                conflicts += 1
+            # Diagonal conflict
+            elif abs(state[i] - state[j]) == abs(i - j):
+                conflicts += 1
+    return conflicts
+
+def get_best_neighbor(state):
+    """
+    Examines all possible single-queen moves.
+    Returns the best neighbor state and its conflict count.
+    """
+    n = len(state)
+    best_state = list(state)
+    best_conflicts = calculate_conflicts(state)
+    
+    # Track all moves that match the best score to break ties randomly
+    all_best_neighbors = [list(state)] 
+
+    for col in range(n):
+        original_row = state[col]
+        for row in range(n):
+            if row == original_row:
+                continue
+                
+            # Create a neighbor by moving one queen
+            neighbor = list(state)
+            neighbor[col] = row
+            neighbor_conflicts = calculate_conflicts(neighbor)
+            
+            # Found a strictly better move
+            if neighbor_conflicts < best_conflicts:
+                best_conflicts = neighbor_conflicts
+                all_best_neighbors = [neighbor]
+            # Found a move just as good as our current best candidate
+            elif neighbor_conflicts == best_conflicts:
+                all_best_neighbors.append(neighbor)
+                
+    # Randomly select among the optimal moves to avoid deterministic loops
+    return random.choice(all_best_neighbors), best_conflicts
+
+def hill_climbing_n_queens(n=8, max_restarts=100):
+    """Solves N-Queens using Hill Climbing with Random Restarts."""
+    total_iterations = 0
+    
+    for restart in range(max_restarts):
+        # Generate a random initial board configuration
+        current_state = [random.randint(0, n - 1) for _ in range(n)]
+        current_conflicts = calculate_conflicts(current_state)
+        
+        while True:
+            total_iterations += 1
+            
+            # If conflicts are 0, global maximum (solution) is reached
+            if current_conflicts == 0:
+                return current_state, restart, total_iterations
+                
+            neighbor, neighbor_conflicts = get_best_neighbor(current_state)
+            
+            # If no neighbor is strictly better, we hit a local minimum or flat plateau
+            if neighbor_conflicts >= current_conflicts:
+                break  # Break the inner loop to trigger a random restart
+                
+            current_state = neighbor
+            current_conflicts = neighbor_conflicts
+            
+    return None, max_restarts, total_iterations
+
+def print_board(state):
+    """Helper to visualize the board arrangement."""
+    n = len(state)
+    for row in range(n):
+        line = ""
+        for col in range(n):
+            if state[col] == row:
+                line += " Q "
+            else:
+                line += " . "
+        print(line)
+
+# --- Execution ---
+if __name__ == "__main__":
+    N = 8  # Change this to scale the board size
+    print(f"Solving {N}-Queens using Hill Climbing with Random Restarts...")
+    
+    solution, restarts, iterations = hill_climbing_n_queens(n=N)
+    
+    if solution:
+        print(f"\nSuccess! Found a solution.")
+        print(f"Random Restarts required: {restarts}")
+        print(f"Total steps taken: {iterations}")
+        print(f"Solution State: {solution}\n")
+        print_board(solution)
+    else:
+        print(f"\nFailed to find a solution within the restart limit.")
+
+
+
+
+Output:Solving 8-Queens using Hill Climbing with Random Restarts...
+
+Success! Found a solution.
+Random Restarts required: 6
+Total steps taken: 26
+Solution State: [3, 5, 7, 1, 6, 0, 2, 4]
+
+ .  .  .  .  .  Q  .  . 
+ .  .  .  Q  .  .  .  . 
+ .  .  .  .  .  .  Q  . 
+ Q  .  .  .  .  .  .  . 
+ .  .  .  .  .  .  .  Q 
+ .  Q  .  .  .  .  .  . 
+ .  .  .  .  Q  .  .  . 
+ .  .  Q  .  .  .  .  . 
