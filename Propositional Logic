@@ -1,0 +1,113 @@
+function TT-ENTAILS(KB, query):
+    symbols ← all proposition symbols in KB and query
+    return TT-CHECK-ALL(KB, query, symbols, model = {})
+
+function TT-CHECK-ALL(KB, query, symbols, model):
+    if symbols is empty:
+        if PL-TRUE(KB, model):
+            return PL-TRUE(query, model)   // KB true, so query must be true
+        else:
+            return true                    // KB false, so model is irrelevant
+    else:
+        P ← first(symbols)
+        rest ← remaining(symbols)
+        return TT-CHECK-ALL(KB, query, rest, model ∪ {P = true})
+           and TT-CHECK-ALL(KB, query, rest, model ∪ {P = false})
+
+function PL-TRUE(sentence, model):
+    if sentence is a symbol:        return model[sentence]
+    if op = NOT:                    return not PL-TRUE(arg, model)
+    if op = AND:                    return PL-TRUE(a, model) and PL-TRUE(b, model)
+    if op = OR:                     return PL-TRUE(a, model) or PL-TRUE(b, model)
+    if op = IMPLIES:                return (not PL-TRUE(a, model)) or PL-TRUE(b, model)
+    if op = IFF:                    return PL-TRUE(a, model) == PL-TRUE(b, model)
+
+
+
+
+from itertools import product
+
+# ---------- Sentence representation ----------
+# A sentence is either a symbol (str) or a tuple: (op, arg1[, arg2])
+def Not(a):        return ("not", a)
+def And(*args):    return ("and", *args)
+def Or(a, b):      return ("or", a, b)
+def Implies(a, b): return ("implies", a, b)
+def Iff(a, b):     return ("iff", a, b)
+
+# ---------- Evaluate a sentence in a model ----------
+def pl_true(s, model):
+    if isinstance(s, str):
+        return model[s]
+    op, *args = s
+    if op == "not":     return not pl_true(args[0], model)
+    if op == "and":     return all(pl_true(a, model) for a in args)
+    if op == "or":      return pl_true(args[0], model) or pl_true(args[1], model)
+    if op == "implies": return (not pl_true(args[0], model)) or pl_true(args[1], model)
+    if op == "iff":     return pl_true(args[0], model) == pl_true(args[1], model)
+    raise ValueError(f"Unknown operator: {op}")
+
+# ---------- Collect symbols ----------
+def get_symbols(s):
+    if isinstance(s, str):
+        return {s}
+    return set().union(*(get_symbols(a) for a in s[1:]))
+
+def to_str(s):
+    if isinstance(s, str):
+        return s
+    op, *args = s
+    sym = {"not": "¬", "and": " ∧ ", "or": " ∨ ", "implies": " → ", "iff": " ↔ "}[op]
+    if op == "not":
+        return "¬" + to_str(args[0])
+    return "(" + sym.join(to_str(a) for a in args) + ")"
+
+# ---------- Truth-table entailment ----------
+def tt_entails(kb, query):
+    symbols = sorted(get_symbols(kb) | get_symbols(query))
+    kb_models = []
+    for values in product([True, False], repeat=len(symbols)):
+        model = dict(zip(symbols, values))
+        if pl_true(kb, model):
+            kb_models.append(model)
+            if not pl_true(query, model):
+                return False, model, kb_models      # counterexample found
+    return True, None, kb_models
+
+# ---------- Build the Knowledge Base ----------
+rules = [
+    Implies("Cloudy", "Rain"),        # R1
+    Implies("Rain", "Wet"),           # R2
+    Implies("Wet", "Slippery"),       # R3
+    "Cloudy",                         # R4
+    Implies("Sunny", Not("Rain")),    # R5
+]
+KB = And(*rules)
+
+print("KNOWLEDGE BASE")
+for i, r in enumerate(rules, 1):
+    print(f"  R{i}: {to_str(r)}")
+
+# ---------- Truth table (full) ----------
+symbols = sorted(get_symbols(KB))
+print("\nTRUTH TABLE (rows where KB is true)")
+print("  " + " | ".join(f"{s:8}" for s in symbols))
+for values in product([True, False], repeat=len(symbols)):
+    model = dict(zip(symbols, values))
+    if pl_true(KB, model):
+        print("  " + " | ".join(f"{str(model[s]):8}" for s in symbols))
+
+# ---------- Queries ----------
+queries = {
+    "Slippery": "Slippery",
+    "Sunny": "Sunny",
+    "¬Sunny": Not("Sunny"),
+}
+
+print("\nENTAILMENT RESULTS")
+for name, q in queries.items():
+    result, counter, kb_models = tt_entails(KB, q)
+    if result:
+        print(f"  KB ⊨ {name}  →  YES (true in all {len(kb_models)} model(s) of KB)")
+    else:
+        print(f"  KB ⊨ {name}  →  NO  (counterexample: {counter})")
