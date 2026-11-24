@@ -1,0 +1,153 @@
+from collections import deque
+
+# Variables start with '?', everything else is a constant or predicate.
+# A literal is (sign, predicate, args); a clause is a frozenset of literals.
+
+def is_var(t): return isinstance(t, str) and t.startswith("?")
+
+def L(pred, *args):  return (True,  pred, tuple(args))
+def NL(pred, *args): return (False, pred, tuple(args))
+
+# ---------- Substitution and unification ----------
+def subst(t, s):
+    if is_var(t):
+        return subst(s[t], s) if t in s else t
+    if isinstance(t, tuple):
+        return tuple(subst(a, s) for a in t)
+    return t
+
+def occurs(v, t, s):
+    t = subst(t, s)
+    if v == t: return True
+    return isinstance(t, tuple) and any(occurs(v, a, s) for a in t)
+
+def bind(v, t, s):
+    if occurs(v, t, s): return None
+    return {**s, v: t}
+
+def unify(x, y, s):
+    if s is None: return None
+    x, y = subst(x, s), subst(y, s)
+    if x == y: return s
+    if is_var(x): return bind(x, y, s)
+    if is_var(y): return bind(y, x, s)
+    if isinstance(x, tuple) and isinstance(y, tuple) and len(x) == len(y):
+        for a, b in zip(x, y):
+            s = unify(a, b, s)
+            if s is None: return None
+        return s
+    return None
+
+# ---------- Clause utilities ----------
+def map_vars(clause, f):
+    def go(t):
+        if is_var(t): return f(t)
+        if isinstance(t, tuple): return tuple(go(a) for a in t)
+        return t
+    return frozenset((sg, p, tuple(go(a) for a in args)) for sg, p, args in clause)
+
+def canon(clause):
+    """Rename variables to ?v0, ?v1, ... so equivalent clauses compare equal."""
+    mapping = {}
+    def f(v):
+        mapping.setdefault(v, f"?v{len(mapping)}")
+        return mapping[v]
+    ordered = sorted(clause, key=repr)
+    return frozenset(
+        (sg, p, tuple(map_vars([(sg, p, (a,))], f).copy().pop()[2][0] for a in args))
+        for sg, p, args in ordered
+    )
+
+def is_tautology(c):
+    return any((not sg, p, args) in c for sg, p, args in c)
+
+def resolve(c1, c2):
+    c2 = map_vars(c2, lambda v: v + "_r")            # standardize apart
+    out = []
+    for l1 in c1:
+        for l2 in c2:
+            if l1[0] != l2[0] and l1[1] == l2[1] and len(l1[2]) == len(l2[2]):
+                s = unify(l1[2], l2[2], {})
+                if s is not None:
+                    rest = (c1 - {l1}) | (c2 - {l2})
+                    new = frozenset((sg, p, tuple(subst(a, s) for a in args))
+                                    for sg, p, args in rest)
+                    out.append((canon(new), s))
+    return out
+
+# ---------- Pretty printing ----------
+def fmt_term(t):
+    if isinstance(t, tuple): return f"{t[0]}({', '.join(fmt_term(a) for a in t[1:])})"
+    return t
+
+def fmt(c):
+    if not c: return "⊥ (empty clause)"
+    return " ∨ ".join(("" if sg else "¬") + f"{p}({', '.join(fmt_term(a) for a in args)})"
+                      for sg, p, args in sorted(c, key=repr))
+
+# ---------- Resolution prover (set-of-support) ----------
+def resolution(kb, negated_goal, max_steps=20000):
+    db = [canon(c) for c in kb]
+    goal = canon(negated_goal)
+    db.append(goal)
+    known = set(db)
+    why = {}                                         # clause -> (parent1, parent2, unifier)
+    queue = deque([goal])
+    steps = 0
+    while queue and steps < max_steps:
+        c = queue.popleft()
+        for d in list(db):
+            for r, s in resolve(c, d):
+                steps += 1
+                if is_tautology(r) or r in known: continue
+                why[r] = (c, d, s)
+                db.append(r); known.add(r); queue.append(r)
+                if not r:
+                    return True, why, goal
+    return False, why, goal
+
+def print_proof(why, goal, kb_clauses):
+    order, seen = [], set()
+    def visit(c):
+        if c in seen: return
+        seen.add(c)
+        if c in why:
+            visit(why[c][0]); visit(why[c][1])
+        order.append(c)
+    visit(frozenset())
+    num = {c: i + 1 for i, c in enumerate(order)}
+    for c in order:
+        if c in why:
+            p1, p2, s = why[c]
+            note = f"Resolve {num[p1]} & {num[p2]}"
+            if s: note += "  θ=" + str({k: fmt_term(subst(k, s)) for k in s})
+        else:
+            note = "Negated query" if c == goal else "KB"
+        print(f"  {num[c]:>2}. {fmt(c):<45} [{note}]")
+
+# ---------- Knowledge base in CNF ----------
+KB = [
+    {NL("food", "?x"), L("likes", "John", "?x")},                         # C1
+    {L("food", "Apple")},                                                 # C2
+    {L("food", "Vegetables")},                                            # C3
+    {NL("eats", "?x", "?y"), L("killed", "?x"), L("food", "?y")},         # C4
+    {L("eats", "Anil", "Peanuts")},                                       # C5
+    {L("alive", "Anil")},                                                 # C6
+    {NL("eats", "Anil", "?x"), L("eats", "Harry", "?x")},                 # C7
+    {L("killed", "?x"), L("alive", "?x")},                                # C8
+    {NL("alive", "?x"), NL("killed", "?x")},                              # C9
+]
+KB = [frozenset(c) for c in KB]
+
+query_text = "likes(John, Peanuts)"
+negated_query = frozenset({NL("likes", "John", "Peanuts")})               # C10
+
+proved, why, goal = resolution(KB, negated_query)
+
+print("Query:", query_text)
+if proved:
+    print("Proof by resolution refutation:")
+    print_proof(why, goal, KB)
+    print(f"\nKB ⊨ {query_text}  →  PROVED (empty clause derived)")
+else:
+    print(f"\nKB ⊨ {query_text}  →  NOT PROVED")
