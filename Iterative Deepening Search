@@ -1,0 +1,79 @@
+# ============================================================
+# Iterative Deepening Search (IDDFS)
+# Graph is an adjacency dictionary: node -> list of neighbours
+# ============================================================
+
+CUTOFF = object()     # sentinel: depth limit was hit (goal may still exist deeper)
+FAILURE = None        # sentinel: subtree fully explored, goal not present
+
+
+def depth_limited_search(graph, node, goal, limit, path, visit_log):
+    """DFS that never goes deeper than `limit` edges from the start.
+    Returns: a path (list), CUTOFF, or FAILURE."""
+    visit_log.append(node)
+
+    if node == goal:
+        return list(path)
+    if limit == 0:
+        return CUTOFF
+
+    cutoff_occurred = False
+    for child in graph.get(node, []):
+        if child in path:                 # avoid cycles along the current path
+            continue
+        path.append(child)
+        result = depth_limited_search(graph, child, goal, limit - 1, path, visit_log)
+        path.pop()                        # backtrack
+
+        if result is CUTOFF:
+            cutoff_occurred = True
+        elif result is not FAILURE:       # found a path
+            return result
+
+    return CUTOFF if cutoff_occurred else FAILURE
+
+
+def iterative_deepening_search(graph, start, goal, max_depth=50, verbose=True):
+    """Run DLS with limits 0, 1, 2, ... until the goal is found
+    or the whole reachable graph is exhausted."""
+    for depth in range(max_depth + 1):
+        visit_log = []
+        result = depth_limited_search(graph, start, goal, depth, [start], visit_log)
+
+        if verbose:
+            print(f"Depth limit {depth}: visited {' '.join(visit_log)}")
+
+        if result is CUTOFF:
+            continue                       # deepen and try again
+        return result, depth               # path found, or FAILURE (None)
+
+    return None, max_depth
+
+
+# ---------------- Example ----------------
+if __name__ == "__main__":
+    graph = {
+        "A": ["B", "C"],
+        "B": ["D", "E"],
+        "C": ["F", "G"],
+        "D": ["H"],
+        "E": ["I", "J"],
+        "F": ["K"],
+        "G": ["L"],
+    }
+
+    start, goal = "A", "J"
+    print(f"Searching from {start} to {goal}\n")
+
+    path, depth = iterative_deepening_search(graph, start, goal)
+
+    if path:
+        print(f"\nGoal found at depth {depth}")
+        print("Path:", " -> ".join(path))
+    else:
+        print("\nGoal not reachable")
+
+    # Unreachable goal: the search stops once nothing is left to explore
+    print("\n--- Goal not in graph ---")
+    path, _ = iterative_deepening_search(graph, "A", "Z", verbose=False)
+    print("Path:", path)
