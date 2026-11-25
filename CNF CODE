@@ -1,0 +1,172 @@
+"""Easy FOL -> CNF converter. Prints the formula after every step.
+
+How to write a formula (nested tuples, atoms are plain strings):
+    atom        "Student(x)"
+    not         ("not", A)
+    and / or    ("and", A, B)      ("or", A, B)
+    implies     ("imp", A, B)      iff: ("iff", A, B)
+    quantifier  ("forall", "x", A) ("exists", "y", A)
+Variables are lowercase letters (x, y, z). Constants/predicates start uppercase.
+"""
+import re
+
+QUANT = ("forall", "exists")
+
+
+# ---------- helpers ----------
+def is_op(f, op):
+    return isinstance(f, tuple) and f[0] == op
+
+
+def show(f):
+    """Turn a formula into readable text."""
+    if isinstance(f, str):
+        return f
+    op = f[0]
+    if op == "not":
+        return "~" + show(f[1])
+    if op in QUANT:
+        return f"{op} {f[1]} ({show(f[2])})"
+    sym = {"and": "&", "or": "|", "imp": "=>", "iff": "<=>"}[op]
+    return f"({show(f[1])} {sym} {show(f[2])})"
+
+
+def map_children(f, fn):
+    """Apply fn to every direct sub-formula of f."""
+    if isinstance(f, str):
+        return f
+    if f[0] in QUANT:
+        return (f[0], f[1], fn(f[2]))
+    return (f[0],) + tuple(fn(x) for x in f[1:])
+
+
+def rename(f, old, new):
+    """Replace variable `old` by `new` inside f (whole-word match)."""
+    if isinstance(f, str):
+        return re.sub(rf"\b{old}\b", lambda m: new, f)
+    if f[0] in QUANT and f[1] == old:      # inner quantifier reuses the name
+        return f
+    return map_children(f, lambda x: rename(x, old, new))
+
+
+# ---------- Step 1: remove => and <=> ----------
+def remove_imp(f):
+    f = map_children(f, remove_imp)
+    if is_op(f, "imp"):                    # A => B  ==  ~A | B
+        return ("or", ("not", f[1]), f[2])
+    if is_op(f, "iff"):                    # A <=> B  ==  (~A | B) & (~B | A)
+        a, b = f[1], f[2]
+        return ("and", ("or", ("not", a), b), ("or", ("not", b), a))
+    return f
+
+
+# ---------- Step 2: push ~ inward ----------
+def push_not(f):
+    if not is_op(f, "not"):
+        return map_children(f, push_not)
+    g = f[1]
+    if isinstance(g, str):
+        return f                           # ~Atom stays
+    if g[0] == "not":                      # ~~A = A
+        return push_not(g[1])
+    if g[0] == "and":                      # De Morgan
+        return ("or", push_not(("not", g[1])), push_not(("not", g[2])))
+    if g[0] == "or":
+        return ("and", push_not(("not", g[1])), push_not(("not", g[2])))
+    flipped = "exists" if g[0] == "forall" else "forall"
+    return (flipped, g[1], push_not(("not", g[2])))
+
+
+# ---------- Step 3: give every quantifier its own variable name ----------
+def standardize(f, used):
+    if isinstance(f, str):
+        return f
+    if f[0] in QUANT:
+        var, new, i = f[1], f[1], 1
+        while new in used:
+            new = f"{var}{i}"
+            i += 1
+        used.add(new)
+        body = rename(f[2], var, new)
+        return (f[0], new, standardize(body, used))
+    return map_children(f, lambda x: standardize(x, used))
+
+
+# ---------- Step 4: Skolemize (remove exists) ----------
+def skolemize(f, universals, counter):
+    if isinstance(f, str):
+        return f
+    if f[0] == "forall":
+        return ("forall", f[1], skolemize(f[2], universals + [f[1]], counter))
+    if f[0] == "exists":
+        counter[0] += 1
+        name = f"Sk{counter[0]}"
+        term = f"{name}({','.join(universals)})" if universals else name
+        return skolemize(rename(f[2], f[1], term), universals, counter)
+    return map_children(f, lambda x: skolemize(x, universals, counter))
+
+
+# ---------- Step 5: drop forall ----------
+def drop_forall(f):
+    if is_op(f, "forall"):
+        return drop_forall(f[2])
+    return map_children(f, drop_forall)
+
+
+# ---------- Step 6: distribute | over & ----------
+def distribute(f):
+    if is_op(f, "and"):
+        return ("and", distribute(f[1]), distribute(f[2]))
+    if is_op(f, "or"):
+        a, b = distribute(f[1]), distribute(f[2])
+        if is_op(a, "and"):                # (A1 & A2) | B
+            return ("and", distribute(("or", a[1], b)), distribute(("or", a[2], b)))
+        if is_op(b, "and"):                # A | (B1 & B2)
+            return ("and", distribute(("or", a, b[1])), distribute(("or", a, b[2])))
+        return ("or", a, b)
+    return f
+
+
+# ---------- Step 7: split into clauses ----------
+def literals(f):
+    if is_op(f, "or"):
+        return literals(f[1]) + literals(f[2])
+    return [show(f)]
+
+
+def get_clauses(f):
+    if is_op(f, "and"):
+        return get_clauses(f[1]) + get_clauses(f[2])
+    return [list(dict.fromkeys(literals(f)))]          # remove duplicate literals
+
+
+# ---------- main ----------
+def to_cnf(f):
+    print("Input:                      ", show(f))
+    f = remove_imp(f);                        print("1. Remove =>, <=>:          ", show(f))
+    f = push_not(f);                          print("2. Push ~ inward:           ", show(f))
+    f = standardize(f, set());                print("3. Standardize variables:   ", show(f))
+    f = skolemize(f, [], [0]);                print("4. Skolemize (no exists):   ", show(f))
+    f = drop_forall(f);                       print("5. Drop forall:             ", show(f))
+    f = distribute(f);                        print("6. Distribute | over &:     ", show(f))
+    print("7. Final clauses:")
+    n = 0
+    for c in get_clauses(f):
+        if any("~" + l in c for l in c):                # skip tautologies like P | ~P
+            continue
+        n += 1
+        print(f"   {n}. " + " | ".join(c))
+    print()
+
+
+if __name__ == "__main__":
+    # Example 1: everyone who loves all animals is loved by someone
+    to_cnf(("forall", "x",
+            ("imp",
+             ("forall", "y", ("imp", "Animal(y)", "Loves(x,y)")),
+             ("exists", "y", "Loves(y,x)"))))
+
+    # Example 2: every student takes some course
+    to_cnf(("forall", "x",
+            ("imp", "Student(x)",
+             ("exists", "y", ("and", "Course(y)", "Takes(x,y)")))))
