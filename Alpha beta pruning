@@ -1,0 +1,152 @@
+import math
+
+# ---------- Part 1: tree search on a perfect binary tree ----------
+class Counter:
+    def __init__(self):
+        self.visited = 0
+
+
+def minimax(depth, idx, is_max, leaves, max_depth, stats):
+    """Plain minimax: visits every node."""
+    stats.visited += 1
+    if depth == max_depth:
+        return leaves[idx]
+    left = minimax(depth + 1, idx * 2, not is_max, leaves, max_depth, stats)
+    right = minimax(depth + 1, idx * 2 + 1, not is_max, leaves, max_depth, stats)
+    return max(left, right) if is_max else min(left, right)
+
+
+def alphabeta(depth, idx, is_max, leaves, max_depth, alpha, beta, stats, trace=False):
+    """Minimax + alpha-beta pruning: same result, fewer nodes."""
+    stats.visited += 1
+    pad = "  " * depth
+    if depth == max_depth:
+        if trace:
+            print(f"{pad}leaf {leaves[idx]}")
+        return leaves[idx]
+
+    if is_max:
+        best = -math.inf
+        for child in (idx * 2, idx * 2 + 1):
+            val = alphabeta(depth + 1, child, False, leaves, max_depth,
+                            alpha, beta, stats, trace)
+            best = max(best, val)
+            alpha = max(alpha, best)
+            if alpha >= beta:
+                if trace:
+                    print(f"{pad}MAX prune: alpha={alpha} >= beta={beta}")
+                break
+        return best
+    else:
+        best = math.inf
+        for child in (idx * 2, idx * 2 + 1):
+            val = alphabeta(depth + 1, child, True, leaves, max_depth,
+                            alpha, beta, stats, trace)
+            best = min(best, val)
+            beta = min(beta, best)
+            if alpha >= beta:
+                if trace:
+                    print(f"{pad}MIN prune: alpha={alpha} >= beta={beta}")
+                break
+        return best
+
+
+# ---------- Part 2: Tic-Tac-Toe (X = MAX, O = MIN) ----------
+LINES = [(0, 1, 2), (3, 4, 5), (6, 7, 8), (0, 3, 6), (1, 4, 7), (2, 5, 8),
+         (0, 4, 8), (2, 4, 6)]
+
+
+def winner(b):
+    for a, c, d in LINES:
+        if b[a] != " " and b[a] == b[c] == b[d]:
+            return b[a]
+    return None
+
+
+def evaluate(b):
+    w = winner(b)
+    return 10 if w == "X" else -10 if w == "O" else 0
+
+
+def ttt_minimax(b, is_max, stats):
+    stats.visited += 1
+    if winner(b) or " " not in b:
+        return evaluate(b)
+    best = -math.inf if is_max else math.inf
+    for i in range(9):
+        if b[i] == " ":
+            b[i] = "X" if is_max else "O"
+            val = ttt_minimax(b, not is_max, stats)
+            b[i] = " "
+            best = max(best, val) if is_max else min(best, val)
+    return best
+
+
+def ttt_alphabeta(b, is_max, alpha, beta, stats, depth=0):
+    stats.visited += 1
+    if winner(b) or " " not in b:
+        score = evaluate(b)
+        # prefer faster wins / slower losses
+        return score - depth if score > 0 else score + depth if score < 0 else 0
+    if is_max:
+        best = -math.inf
+        for i in range(9):
+            if b[i] == " ":
+                b[i] = "X"
+                best = max(best, ttt_alphabeta(b, False, alpha, beta, stats, depth + 1))
+                b[i] = " "
+                alpha = max(alpha, best)
+                if alpha >= beta:
+                    break
+        return best
+    best = math.inf
+    for i in range(9):
+        if b[i] == " ":
+            b[i] = "O"
+            best = min(best, ttt_alphabeta(b, True, alpha, beta, stats, depth + 1))
+            b[i] = " "
+            beta = min(beta, best)
+            if alpha >= beta:
+                break
+    return best
+
+
+def best_move(b, player):
+    """Best move for `player` ('X' maximises, 'O' minimises)."""
+    is_max = player == "X"
+    best_val = -math.inf if is_max else math.inf
+    move = None
+    for i in range(9):
+        if b[i] == " ":
+            b[i] = player
+            val = ttt_alphabeta(b, not is_max, -math.inf, math.inf, Counter(), 1)
+            b[i] = " "
+            if (is_max and val > best_val) or (not is_max and val < best_val):
+                best_val, move = val, i
+    return move
+
+
+if __name__ == "__main__":
+    leaves = [3, 5, 6, 9, 1, 2, 0, -1]
+    depth = 3
+
+    s1 = Counter()
+    r1 = minimax(0, 0, True, leaves, depth, s1)
+
+    print("Alpha-beta trace:")
+    s2 = Counter()
+    r2 = alphabeta(0, 0, True, leaves, depth, -math.inf, math.inf, s2, trace=True)
+
+    print(f"\nMinimax    -> value {r1}, nodes visited: {s1.visited}")
+    print(f"Alpha-beta -> value {r2}, nodes visited: {s2.visited}")
+
+    print("\nTic-Tac-Toe, empty board (X to move):")
+    a, b = Counter(), Counter()
+    ttt_minimax([" "] * 9, True, a)
+    ttt_alphabeta([" "] * 9, True, -math.inf, math.inf, b)
+    print(f"Minimax    nodes: {a.visited:,}")
+    print(f"Alpha-beta nodes: {b.visited:,}  "
+          f"({100 * (1 - b.visited / a.visited):.1f}% fewer)")
+
+    board = list("XO X O   ")   # X to move
+    print("\nBest move for X ->", best_move(board, "X"))
